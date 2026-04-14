@@ -337,7 +337,7 @@ async def _enumerate_connected(client) -> EnumResult:
 async def run_proxy(target_mac: str, central_adapter: str, peripheral_adapter: str):
     global bleak_client, asyncio_loop, log_file
 
-    log_file = open(f"mitm_{target_mac.replace(':', '')}.log", "w")
+    log_file = open(f"logs/mitm_{target_mac.replace(':', '')}.log", "w")
     asyncio_loop = asyncio.get_event_loop()
 
     log.info("Put the device in pairing mode (long-press the channel button), then press Enter...")

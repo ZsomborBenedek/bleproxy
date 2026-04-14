@@ -39,7 +39,7 @@ AGENT_MANAGER_IFACE = "org.bluez.AgentManager1"
 AGENT_PATH         = "/org/bleproxy/agent"
 DBUS_OM_IFACE      = "org.freedesktop.DBus.ObjectManager"
 
-char_values: dict[str, bytearray] = {}
+char_values: dict[int, bytearray] = {}   # keyed by BLE handle, not UUID
 bleak_client: BleakClient | None = None
 asyncio_loop: asyncio.AbstractEventLoop | None = None
 log_file = None
@@ -163,10 +163,10 @@ class BLEAdvertisement(dbus.service.Object):
                 "Type": self.ad_type,
                 "LocalName": dbus.String(self.local_name),
                 "ServiceUUIDs": dbus.Array(self.service_uuids, signature="s"),
+                "Appearance": dbus.UInt16(962),  # 962 = Mouse
                 "Includes": dbus.Array(["tx-power"], signature="s"),
             }
         }
-
     def get_path(self): return dbus.ObjectPath(self.path)
 
     @dbus.service.method(DBUS_PROP_IFACE, in_signature="ss", out_signature="v")
@@ -183,10 +183,11 @@ class BLEAdvertisement(dbus.service.Object):
 
 # ─── GATT Characteristic ──────────────────────────────────────────────────────
 class BLECharacteristic(dbus.service.Object):
-    def __init__(self, bus, index, uuid, flags, service_path):
+    def __init__(self, bus, index, uuid, flags, service_path, handle=0):
         self.path = f"{service_path}/char{index}"
         self.uuid = uuid
         self.flags = flags
+        self.handle = handle
         self.value = dbus.Array([], signature="y")
         super().__init__(bus, self.path)
 
@@ -208,7 +209,7 @@ class BLECharacteristic(dbus.service.Object):
 
     @dbus.service.method(GATT_CHAR_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options):
-        val = char_values.get(self.uuid, bytearray())
+        val = char_values.get(self.handle, bytearray())
         log_event("READ", self.uuid, val)
         return dbus.Array(val, signature="y")
 
@@ -218,8 +219,10 @@ class BLECharacteristic(dbus.service.Object):
         log_event("WRIT", self.uuid, data)
         if bleak_client and bleak_client.is_connected and asyncio_loop:
             log_event("FWRD", self.uuid, data)
+            # Use handle to disambiguate when multiple chars share a UUID (e.g. HID Report)
+            target = self.handle if self.handle else self.uuid
             asyncio.run_coroutine_threadsafe(
-                bleak_client.write_gatt_char(self.uuid, data, response=False),
+                bleak_client.write_gatt_char(target, data, response=False),
                 asyncio_loop,
             )
 
@@ -287,6 +290,7 @@ class BLEApplication(dbus.service.Object):
 class CharInfo:
     uuid: str
     flags: list[str]
+    handle: int = 0
     initial_value: bytearray = field(default_factory=bytearray)
 
 
@@ -318,7 +322,7 @@ async def _enumerate_connected(client) -> EnumResult:
             # so the strings are exactly what BlueZ expects back (including "indicate",
             # "authenticated-signed-writes", etc. that we previously dropped).
             flags = list(char.properties)
-            svc_info.chars.append(CharInfo(uuid=uuid, flags=flags))
+            svc_info.chars.append(CharInfo(uuid=uuid, flags=flags, handle=char.handle))
         services.append(svc_info)
 
     log.info(f"Enumerated {len(services)} service(s).")
@@ -389,7 +393,16 @@ async def run_proxy(target_mac: str, central_adapter: str, peripheral_adapter: s
         gatt_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
 
         app = BLEApplication(bus)
-        adv = BLEAdvertisement(bus, 0, enum.device_name, enum.service_uuids)
+        
+        # Filter to ONLY advertise the HID service to fit inside the 31-byte limit
+        # The full UUID for standard HID is 00001812-0000-1000-8000-00805f9b34fb
+        adv_uuids = [u for u in enum.service_uuids if "1812" in u]
+        
+        # Fallback just in case HID isn't found, pick only the first one
+        if not adv_uuids and enum.service_uuids:
+            adv_uuids = [enum.service_uuids[0]]
+            
+        adv = BLEAdvertisement(bus, 0, enum.device_name, adv_uuids)
 
         # BlueZ 5.72+ refuses to register Generic Access (0x1800) and Generic
         # Attribute (0x1801) via external applications — it owns those internally.
@@ -398,7 +411,7 @@ async def run_proxy(target_mac: str, central_adapter: str, peripheral_adapter: s
             "00001801-0000-1000-8000-00805f9b34fb",  # Generic Attribute
         }
 
-        char_objects: dict[str, BLECharacteristic] = {}
+        char_objects: dict[int, BLECharacteristic] = {}   # handle → dbus char
         svc_dbus_idx = 0
         for svc_info in enum.services:
             if svc_info.uuid in BLUEZ_RESERVED:
@@ -407,9 +420,9 @@ async def run_proxy(target_mac: str, central_adapter: str, peripheral_adapter: s
             dbus_svc = BLEService(bus, svc_dbus_idx, svc_info.uuid)
             svc_dbus_idx += 1
             for char_idx, char_info in enumerate(svc_info.chars):
-                dbus_char = BLECharacteristic(bus, char_idx, char_info.uuid, char_info.flags, dbus_svc.path)
-                char_values[char_info.uuid] = char_info.initial_value
-                char_objects[char_info.uuid] = dbus_char
+                dbus_char = BLECharacteristic(bus, char_idx, char_info.uuid, char_info.flags, dbus_svc.path, handle=char_info.handle)
+                char_values[char_info.handle] = char_info.initial_value
+                char_objects[char_info.handle] = dbus_char
                 dbus_svc.add_characteristic(dbus_char)
             app.add_service(dbus_svc)
 
@@ -426,22 +439,24 @@ async def run_proxy(target_mac: str, central_adapter: str, peripheral_adapter: s
         setup_victim_monitoring(bus, peripheral_adapter)
 
         log.info("Subscribing to notifications...")
-        for svc_info in enum.services:
-            for char_info in svc_info.chars:
-                if not {"notify", "indicate"}.intersection(char_info.flags) or char_info.uuid not in char_objects:
+        for svc in client.services:
+            for char in svc.characteristics:
+                if not {"notify", "indicate"}.intersection(char.properties):
                     continue
-                uuid = char_info.uuid
-                dbus_char = char_objects[uuid]
-                def make_handler(u=uuid, dc=dbus_char):
+                handle = char.handle
+                if handle not in char_objects:
+                    continue
+                dbus_char = char_objects[handle]
+                def make_handler(h=handle, u=str(char.uuid), dc=dbus_char):
                     def handler(_, data: bytearray):
-                        char_values[u] = data
+                        char_values[h] = data
                         log_event("NOTF", u, data)
                         dc.notify(data)
                     return handler
                 try:
-                    await client.start_notify(uuid, make_handler())
+                    await client.start_notify(char, make_handler())
                 except Exception as e:
-                    log.warning(f"Could not subscribe to {uuid}: {e}")
+                    log.warning(f"Could not subscribe to {char.uuid} (handle {handle}): {e}")
 
         await stop_event.wait()
         glib_loop.quit()

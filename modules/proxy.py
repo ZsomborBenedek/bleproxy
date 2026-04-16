@@ -16,18 +16,18 @@ import dbus.mainloop.glib
 from gi.repository import GLib
 from bleak import BleakClient, BleakScanner
 
-import state
-from constants import (
+import modules.state as state
+from modules.constants import (
     BLUEZ_SERVICE, LE_ADV_MANAGER, GATT_MANAGER_IFACE,
     AGENT_MANAGER_IFACE, AGENT_PATH, DBUS_OM_IFACE,
     BLUEZ_RESERVED_SERVICES,
 )
-from logger import log_event
-from agent import SimpleAgent
-from advertisement import BLEAdvertisement
-from gatt import BLEApplication, BLEService, BLECharacteristic, BLEDescriptor
-from enumeration import enumerate_services
-from victim_monitor import setup_victim_monitoring
+from modules.logger import log_event
+from modules.agent import SimpleAgent
+from modules.advertisement import BLEAdvertisement
+from modules.gatt import BLEApplication, BLEService, BLECharacteristic, BLEDescriptor
+from modules.enumeration import enumerate_services
+from modules.victim_monitor import setup_victim_monitoring
 
 log = logging.getLogger(__name__)
 

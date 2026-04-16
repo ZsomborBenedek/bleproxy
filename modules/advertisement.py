@@ -2,7 +2,7 @@
 import dbus
 import dbus.service
 
-from constants import LE_ADV_IFACE, DBUS_PROP_IFACE
+from modules.constants import LE_ADV_IFACE, DBUS_PROP_IFACE
 
 
 class BLEAdvertisement(dbus.service.Object):

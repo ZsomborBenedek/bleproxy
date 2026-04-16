@@ -11,7 +11,7 @@ Two things are normalised during enumeration so the proxy works transparently:
 import logging
 from dataclasses import dataclass, field
 
-from constants import SECURITY_FLAGS, BLUEZ_MANAGED_DESCRIPTORS
+from modules.constants import SECURITY_FLAGS, BLUEZ_MANAGED_DESCRIPTORS
 
 log = logging.getLogger(__name__)
 

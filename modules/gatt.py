@@ -13,11 +13,11 @@ import logging
 import dbus
 import dbus.service
 
-import state
-from constants import (
+import modules.state as state
+from modules.constants import (
     GATT_CHAR_IFACE, GATT_SERVICE_IFACE, DBUS_PROP_IFACE, DBUS_OM_IFACE,
 )
-from logger import log_event
+from modules.logger import log_event
 
 log = logging.getLogger(__name__)
 

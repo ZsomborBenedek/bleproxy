@@ -11,8 +11,8 @@ import logging
 
 import dbus
 
-from constants import BLUEZ_SERVICE, DBUS_PROP_IFACE, DBUS_OM_IFACE
-from logger import log_connection
+from modules.constants import BLUEZ_SERVICE, DBUS_PROP_IFACE, DBUS_OM_IFACE
+from modules.logger import log_connection
 
 log = logging.getLogger(__name__)
 

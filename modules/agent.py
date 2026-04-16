@@ -2,7 +2,7 @@
 import dbus
 import dbus.service
 
-from constants import AGENT_IFACE, AGENT_PATH
+from modules.constants import AGENT_IFACE, AGENT_PATH
 
 
 class SimpleAgent(dbus.service.Object):

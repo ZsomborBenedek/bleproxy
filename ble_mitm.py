@@ -12,8 +12,8 @@ import asyncio
 import argparse
 import logging
 
-from scanner import scan_devices
-from proxy import run_proxy
+from modules.scanner import scan_devices
+from modules.proxy import run_proxy
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
